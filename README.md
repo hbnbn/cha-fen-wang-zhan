@@ -205,37 +205,42 @@ Vercel Hobby 免费版不用绑卡，部署步骤如下：
 ## 部署到 EdgeOne Pages（国内访问）
 
 这是目前面向国内用户的推荐部署方式：腾讯 EdgeOne 的节点在国内，部署后给的
-默认域名 `xxx.edgeone.app` 在中国大陆网络可直接打开，不用再连 Neon、也不用
-服务器。这一套的代码在本仓库的 `edgeone/` 子目录里，是一个自包含的
-EdgeOne Pages / EdgeOne Makers 全栈项目，和根目录的 Render/Vercel 版互不
-影响（前端页面是同一套，接口路径 `/api/*` 完全一致）：
+默认域名在中国大陆网络可直接打开。这一套的代码在本仓库的 `edgeone/` 子目录
+里，是一个自包含的 EdgeOne Pages / EdgeOne Makers 全栈项目，和根目录的
+Render/Vercel 版互不影响（前端页面是同一套，接口路径 `/api/*` 完全一致）：
 
 ```
 edgeone/
 ├── public/                 静态前端（index / lookup / admin 三个页面 + common.js / styles.css）
 ├── edge-functions/
-│   └── api/[[default]].js 边缘函数：一个函数处理全部 /api/* 请求
+│   └── api/[[default]].js 边缘函数：一个函数处理全部 /api/* 请求（Neon HTTP 版）
+├── kv-backup/
+│   └── default.kv.js.txt  原 KV 版函数的完整备份（不在部署目录里，不会被发布）
 └── edgeone.json            导入时控制台填写值的备查记录（见下方说明）
 ```
 
-与数据库版的区别先说清：
+存储方案（先看这里）：
 
-- 存储改用 **EdgeOne KV**，不再连 PostgreSQL。成绩全部存一个键
-  `score_records`（JSON 数组），页面设置存一个键 `score_settings`（JSON）。
-- KV 是最终一致的（官方文档说约 60 秒内全球同步），且整表读写不带锁：
-  老师单人录入、学生查分这种小场景够用；多人同时录入可能互相覆盖，
-  刚录完在个别地区节点上可能要等几十秒才能查到。数据量大了（成千上万条）
-  就不适合这个存法，再考虑迁回数据库版。
-- 好处是整站都在 EdgeOne 上：没有跨境数据库连接、没有冷启动的数据库建连，
-  也不用再维护 Neon。
+- **现在用 Neon PostgreSQL**，和根目录 Render/Vercel 版是同一个数据库、同一
+  套表（`score_records`、`settings`，首次请求时自动建表）。EdgeOne 边缘函数
+  不能用 TCP 连 Postgres，所以函数走 **Neon 的 HTTP 查询接口**（就是 Neon
+  官方 serverless 驱动用的协议）：`POST https://<连接串 hostname>/sql`，
+  请求头带 `Neon-Connection-String`，body 为 `{ query, params }`，SQL 全部
+  参数化，用户输入只进 `params`、不拼 SQL。
+- 背景：原方案是用 EdgeOne KV 存数据，但 **KV 开通需要人工审批，申请提交后
+  一直未通过**，录入接口因此存不了数据，所以改回现成的 Neon；原 KV 版函数
+  备份在 `edgeone/kv-backup/default.kv.js.txt`，以后 KV 批下来想切回，把它
+  换回 `edge-functions/api/[[default]].js` 并重新绑定 `SCORE_KV` 即可。
+- 代价：EdgeOne 节点在国内、Neon 在境外（US East），每次查分/录入都是一次
+  跨境 HTTPS 请求，延迟会比国内数据库高一些（几百毫秒量级），偶尔可能受
+  跨境网络波动影响；页面本身在国内打开不受影响。数据量和并发都不大时够用。
 
 ### 部署步骤
 
 1. **登录 EdgeOne Pages / Makers**：打开 EdgeOne Pages 控制台
    （国际版 https://edgeone.ai 的 Pages，或腾讯云国内版 EdgeOne Makers
-   https://pages.edgeone.ai ），选 **用 GitHub 登录**，用存放本仓库的
-   GitHub 账号 `hbnbn` 授权登录。国内版如果提示要腾讯云账号/实名，按页面
-   提示用本人账号完成即可。
+   https://pages.edgeone.ai ），用存放本仓库的 GitHub 账号 `hbnbn` 授权
+   登录。国内版如果提示要腾讯云账号/实名，按页面提示用本人账号完成即可。
 2. **导入仓库**：新建项目 → **导入 Git 仓库**，选
    `hbnbn/cha-fen-wang-zhan`，填写值如下（备查记录也在
    `edgeone/edgeone.json` 里）：
@@ -243,33 +248,47 @@ edgeone/
    - 框架预设（Framework Preset）：**Other**（其它/无框架）
    - 构建命令（Build Command）：**留空**（纯静态页面 + 边缘函数，不用构建）
    - 输出目录（Output Directory）：`public`
-3. **创建并绑定 KV**（关键一步，漏了接口会报「SCORE_KV 未绑定」）：
-   在控制台的 **KV 存储** 里先开通 KV、新建一个命名空间（如 `cha-fen-kv`），
-   再回到本项目里把这个命名空间**绑定**到项目，绑定时填的**变量名必须是
-   `SCORE_KV`**（大写，和函数代码里的名字一致，改了名函数就找不到存储）。
-4. **部署**：保存后点部署，等构建完成。`edge-functions/api/[[default]].js`
-   会自动按目录结构生成 `/api/*` 路由，静态页面从 `public/` 发布。
-5. **拿到网址**：部署完成后项目页给出默认域名，形如：
-
-   ```
-   https://cha-fen-wang-zhan.edgeone.app
-   ```
-
-   （具体以控制台实际显示为准。）把这个网址发给老师和学生，国内网络可
-   直接打开：老师进「成绩录入」，学生进「学生查分」。部署完先自己实测
-   一遍：录一条测试成绩 → 查分能查到 → 再把测试记录删掉。
+   - 如果项目之前已经按 KV 版导入过，不用新建，仓库代码更新后重新部署即可。
+3. **加环境变量 `DATABASE_URL`**（关键一步，漏了接口会报
+   「服务器未配置 DATABASE_URL」）：
+   - 在 Neon 控制台打开本项目用的 Neon 项目，在 **Connection string** 里
+     复制连接串（形如
+     `postgres://USER:PASSWORD@HOST.neon.tech/DBNAME?sslmode=require`）。
+   - 在 EdgeOne 的本项目设置（环境变量）里新增：
+     - 变量名：`DATABASE_URL`（必须大写、和函数代码里读的名字一致）
+     - 变量值：上一步复制的 Neon 连接串
+   - 这是密码级别的机密：**只能填在 EdgeOne 平台的项目设置里，不要写进
+     代码仓库、不要提交到 GitHub**。
+   - 不需要再创建或绑定 KV 命名空间（那是已停用的旧方案）。
+4. **部署 / 重新部署**：保存后点部署（改过环境变量后必须重新部署才生效），
+   等构建完成。`edge-functions/api/[[default]].js` 会自动按目录结构生成
+   `/api/*` 路由，静态页面从 `public/` 发布。
+5. **拿到网址并实测**：部署完成后项目页给出默认域名（形如
+   `https://cha-fen-wang-zhan.edgeone.app`，具体以后台实际显示为准）。把
+   网址发给老师和学生，国内网络可直接打开：老师进「成绩录入」，学生进
+   「学生查分」。部署完先自己实测一遍：录一条测试成绩（如语文 90、数学
+   95，总分 185）→ 用学生查分能查到且总分、排名正确 → 再把测试记录删掉。
 
 平台细节说明（写代码时核对过的与还没法确认的）：
 
 - 边缘函数的目录和入口按 EdgeOne Makers 官方文档《Edge Functions》：
   `edge-functions/` 目录按结构生成路由，`[[default]].js` 捕获多级路径，
   入口是 `export default function onRequest(context)`。
-- KV 的用法按官方《KV 存储》文档：绑定变量名会被注入为**全局变量**，
-  示例就是 `my_kv.get('count')` / `await my_kv.put(key, value)` 这样直接用，
-  不是从 `context.env` 里取；本项目据此用全局变量 `SCORE_KV`。
+- 环境变量的读取在函数里做了多路兜底：依次试 `context.env.DATABASE_URL`、
+  `context.DATABASE_URL`、`globalThis.DATABASE_URL`、
+  `globalThis.env.DATABASE_URL`、`process.env.DATABASE_URL` 等平台可能的
+  注入方式；只要在项目设置里把 `DATABASE_URL` 加对，其中一路就会命中。
+  部署后如果接口仍报「未配置 DATABASE_URL」，先检查变量名有没有写错、
+  改完有没有重新部署。
+- Neon HTTP 接口的依据：Neon 官方《Neon serverless driver》文档（HTTP
+  模式用 fetch 发单条参数化查询）与官方驱动仓库 CONFIG.md（默认
+  `fetchEndpoint` 为 `host => 'https://' + host + '/sql'`）；函数还按官方
+  驱动的做法带了 `Neon-Raw-Text-Output: true`，并按返回的
+  `fields.dataTypeID` 把整数/小数/JSONB 转成 JS 值。HTTP 接口一次只能执行
+  一条语句，所以自动建表是逐条发的。
 - 国际版 EdgeOne Pages（edgeone.ai）的函数目录叫 `functions/`、入口是
   命名导出 `export function onRequest(...)`，与 Makers 写法不同；如果改用
   国际版部署，需要把 `edge-functions/` 改名为 `functions/` 并改导出方式，
   其余逻辑可原样复用。
 - `edgeone/edgeone.json` 只是导入填写值的备查记录，不保证平台会读取它；
-  一切以控制台里实际填写的根目录、输出目录和 KV 绑定为准。
+  一切以控制台里实际填写的根目录、输出目录和环境变量为准。
