@@ -2,9 +2,14 @@
 /*
  * 查分网站后端（Node 原生 http，无框架依赖，仅用 pg 连 PostgreSQL）
  * - 数据存 PostgreSQL：通过环境变量 DATABASE_URL 连接（部署时填 Neon 连接串）
- * - 启动时自动建表：score_records（成绩）、settings（页面设置）
+ * - 自动建表：score_records（成绩）、settings（页面设置）。建表是懒加载的：
+ *   首次数据请求时才确保表存在（兼容 Vercel Serverless 的无状态短时运行），
+ *   Render / 本地长驻运行时也会在启动时先跑一遍。
  * - Neon 需要 SSL：只要有 DATABASE_URL 就开启 ssl.rejectUnauthorized=false
  * - 本地没有 DATABASE_URL 时也能启动页面，但涉及数据的接口会返回 500 提示未配置
+ * - 两种运行方式共用同一套请求处理逻辑（本文件导出的 handler）：
+ *   1) 长驻服务：node server.js（Render / 本地），直接运行时才 listen；
+ *   2) Vercel Serverless：api/index.js 重新导出 handler 作为函数入口。
  */
 const http = require('http');
 const fs = require('fs');
@@ -26,18 +31,55 @@ const DEFAULT_SETTINGS = {
 };
 
 let pool = null;
-if (process.env.DATABASE_URL) {
+let warnedNoDb = false;
+
+function getPool() {
+  if (pool) return pool;
+  // Serverless 环境下同一容器会复用模块/全局对象，把池缓存在 global 上，
+  // 避免每次请求都新建连接池；长驻运行时行为不变（只建一个池）。
+  if (global.__chaFenPool) {
+    pool = global.__chaFenPool;
+    return pool;
+  }
+  if (!process.env.DATABASE_URL) {
+    if (!warnedNoDb) {
+      warnedNoDb = true;
+      console.warn('[warn] DATABASE_URL 未设置：页面可打开，但数据接口不可用。请按 README 配置 Neon 连接串。');
+    }
+    return null;
+  }
   pool = new Pool({
     connectionString: process.env.DATABASE_URL,
     ssl: { rejectUnauthorized: false },
+    // 短时/无状态运行下连接按需取用、用完尽快释放，不依赖长连接常驻。
+    max: 5,
+    idleTimeoutMillis: 10000,
+    connectionTimeoutMillis: 10000,
   });
-} else {
-  console.warn('[warn] DATABASE_URL 未设置：页面可打开，但数据接口不可用。请按 README 配置 Neon 连接串。');
+  pool.on('error', (e) => console.error('[db] idle client error:', e.message));
+  global.__chaFenPool = pool;
+  return pool;
 }
 
-async function initDb() {
-  if (!pool) return;
-  await pool.query(`
+let dbReadyPromise = null;
+
+// 懒加载建表：第一次需要数据库时才执行，成功后缓存 Promise 不重复建表；
+// 失败时清掉缓存，下次请求可重试。没有 DATABASE_URL 时直接返回 false，
+// 由 requirePool 给出「未配置」提示（与原行为一致）。
+function ensureDb() {
+  const activePool = getPool();
+  if (!activePool) return Promise.resolve(false);
+  if (!dbReadyPromise) {
+    dbReadyPromise = initDb(activePool).catch((e) => {
+      dbReadyPromise = null;
+      throw e;
+    });
+  }
+  return dbReadyPromise.then(() => true);
+}
+
+async function initDb(activePool) {
+  await activePool.query(`
     CREATE TABLE IF NOT EXISTS score_records (
       id SERIAL PRIMARY KEY,
       student_name TEXT NOT NULL,
@@ -65,7 +107,7 @@ async function initDb() {
       footer_text TEXT NOT NULL DEFAULT ''
     );
   `);
-  await pool.query(
+  await activePool.query(
     `INSERT INTO settings (id, school_name, subtitle, announcement, home_intro,
         lookup_entry_name, lookup_description, entry_entry_name, footer_text)
      VALUES (1, $1,$2,$3,$4,$5,$6,$7,$8)
@@ -85,7 +127,7 @@ async function initDb() {
 }
 
 function requirePool(res) {
-  if (pool) return true;
+  if (getPool()) return true;
   sendJson(res, 500, { ok: false, error: '服务器未配置 DATABASE_URL，无法读取数据。' });
   return false;
 }
@@ -148,7 +190,7 @@ async function handleApi(req, res, url) {
 
   if (p === '/api/settings' && req.method === 'GET') {
     if (!requirePool(res)) return;
-    const { rows } = await pool.query('SELECT * FROM settings WHERE id = 1');
+    const { rows } = await getPool().query('SELECT * FROM settings WHERE id = 1');
     sendJson(res, 200, { ok: true, settings: rows[0] || DEFAULT_SETTINGS });
     return;
   }
@@ -166,7 +208,7 @@ async function handleApi(req, res, url) {
       String(b.entry_entry_name ?? DEFAULT_SETTINGS.entry_entry_name),
       String(b.footer_text ?? ''),
     ];
-    const { rows } = await pool.query(
+    const { rows } = await getPool().query(
       `INSERT INTO settings (id, school_name, subtitle, announcement, home_intro,
           lookup_entry_name, lookup_description, entry_entry_name, footer_text)
        VALUES (1,$1,$2,$3,$4,$5,$6,$7,$8)
@@ -191,7 +233,7 @@ async function handleApi(req, res, url) {
       sendJson(res, 400, { ok: false, error: '请输入姓名和学号' });
       return;
     }
-    const mine = await pool.query(
+    const mine = await getPool().query(
       'SELECT * FROM score_records WHERE student_name = $1 AND student_id = $2 ORDER BY exam_name, id',
       [name, studentId]
     );
@@ -201,7 +243,7 @@ async function handleApi(req, res, url) {
     }
     const results = [];
     for (const r of mine.rows) {
-      const all = await pool.query(
+      const all = await getPool().query(
         'SELECT total, class_name FROM score_records WHERE exam_name = $1',
         [r.exam_name]
       );
@@ -227,7 +269,7 @@ async function handleApi(req, res, url) {
 
   if (p === '/api/records' && req.method === 'GET') {
     if (!requirePool(res)) return;
-    const { rows } = await pool.query('SELECT * FROM score_records ORDER BY exam_name, class_name, student_id, id');
+    const { rows } = await getPool().query('SELECT * FROM score_records ORDER BY exam_name, class_name, student_id, id');
     sendJson(res, 200, { ok: true, records: rows.map(rowToRecord) });
     return;
   }
@@ -237,7 +279,7 @@ async function handleApi(req, res, url) {
     const b = await readBody(req);
     const subjects = cleanSubjects(b.subjects);
     const total = computeTotal(subjects);
-    const { rows } = await pool.query(
+    const { rows } = await getPool().query(
       `INSERT INTO score_records (student_name, student_id, class_name, exam_name, subjects, total)
        VALUES ($1,$2,$3,$4,$5,$6) RETURNING *`,
       [String(b.student_name || '').trim(), String(b.student_id || '').trim(),
@@ -259,7 +301,7 @@ async function handleApi(req, res, url) {
       const studentId = String(item.student_id || '').trim();
       const examName = String(item.exam_name || '').trim();
       if (!studentName || !studentId || !examName) continue;
-      await pool.query(
+      await getPool().query(
         `INSERT INTO score_records (student_name, student_id, class_name, exam_name, subjects, total)
          VALUES ($1,$2,$3,$4,$5,$6)`,
         [studentName, studentId, String(item.class_name || '').trim(), examName,
@@ -276,7 +318,7 @@ async function handleApi(req, res, url) {
     if (!requirePool(res)) return;
     const b = await readBody(req);
     const subjects = cleanSubjects(b.subjects);
-    const { rows } = await pool.query(
+    const { rows } = await getPool().query(
       `UPDATE score_records SET student_name=$1, student_id=$2, class_name=$3,
          exam_name=$4, subjects=$5, total=$6, updated_at=now()
        WHERE id=$7 RETURNING *`,
@@ -290,7 +332,7 @@ async function handleApi(req, res, url) {
   }
   if (m && req.method === 'DELETE') {
     if (!requirePool(res)) return;
-    await pool.query('DELETE FROM score_records WHERE id=$1', [Number(m[1])]);
+    await getPool().query('DELETE FROM score_records WHERE id=$1', [Number(m[1])]);
     sendJson(res, 200, { ok: true });
     return;
   }
@@ -307,10 +349,15 @@ const MIME = {
   '.ico': 'image/x-icon',
 };
 
-const server = http.createServer(async (req, res) => {
+// 统一的请求处理函数：长驻服务和 Vercel Serverless 共用。
+// 本地/Render 时由 http.createServer 包起来 listen；
+// Vercel 时由 api/index.js 直接作为函数 handler 导出。
+const handler = async (req, res) => {
   const url = new URL(req.url, `http://${req.headers.host || 'localhost'}`);
   try {
     if (url.pathname.startsWith('/api/')) {
+      // 懒加载：首次数据请求时才建表（Serverless 冷启动后同样适用）。
+      await ensureDb();
       await handleApi(req, res, url);
       return;
     }
@@ -327,10 +374,21 @@ const server = http.createServer(async (req, res) => {
     console.error(e);
     if (!res.headersSent) sendJson(res, 500, { ok: false, error: e.message || '服务器错误' });
   }
-});
+};
 
-initDb()
-  .catch((e) => console.error('[db] 初始化失败（检查 DATABASE_URL 是否正确）:', e.message))
-  .finally(() => {
-    server.listen(PORT, () => console.log(`cha-fen server listening on http://localhost:${PORT}`));
-  });
+// Vercel Serverless 入口（api/index.js 重新导出本 handler）；
+// 同时保留命名导出，方便其他方式引用。
+module.exports = handler;
+module.exports.handler = handler;
+module.exports.ensureDb = ensureDb;
+
+// 只有直接运行本文件（node server.js，Render / 本地）时才启动长驻服务；
+// 被 api/index.js 或其他模块 require 时不 listen。
+if (require.main === module) {
+  const server = http.createServer(handler);
+  ensureDb()
+    .catch((e) => console.error('[db] 初始化失败（检查 DATABASE_URL 是否正确）:', e.message))
+    .finally(() => {
+      server.listen(PORT, () => console.log(`cha-fen server listening on http://localhost:${PORT}`));
+    });
+}

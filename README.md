@@ -71,3 +71,39 @@ https://cha-fen-wang-zhan.onrender.com
 - Render 免费服务闲置约 15 分钟会休眠，下一次打开要等 30–60 秒冷启动，属正常现象。
 - Neon 免费数据库额度对查分这种小数据量足够；不要使用 Render 自带的免费 Postgres（会过期）。
 - 修改页面文字不用重新部署：在录入页底部「页面设置」里改完保存即可。
+
+## 部署到 Vercel（备选，与 Render 二选一）
+
+本项目同时支持部署到 Vercel：`api/index.js` 是 Serverless Function 入口
+（重新导出 `server.js` 的请求处理逻辑），`vercel.json` 把 `/api/*` 和其余请求
+都转给它处理，页面和接口行为与 Render 版一致。数据库仍用 Neon，不用改代码。
+Vercel Hobby 免费版不用绑卡，部署步骤如下：
+
+1. 打开 https://vercel.com ，用 GitHub 登录（选 **Continue with GitHub**，
+   就是存放本项目代码的那个 GitHub 账号）。
+2. 在 Dashboard 点 **Add New → Project**，在 **Import Git Repository** 里选
+   仓库 `hbnbn/cha-fen-wang-zhan`，点 **Import**。
+   - Framework Preset 保持 **Other** 即可，不用改 Build / Output 设置，
+     本项目靠仓库里的 `vercel.json` 工作。
+3. 在 **Environment Variables** 里添加：
+   - Name：`DATABASE_URL`
+   - Value：在 Neon 项目 Dashboard 的 **Connection string** 里复制的连接串
+     （占位示例：`postgres://USER:PASSWORD@HOST.neon.tech/DBNAME?sslmode=require`）
+   - 这是密码级别的机密，只填到 Vercel 的环境变量里，不要写进代码仓库。
+4. 点 **Deploy**，等部署完成。
+5. 拿到网址：部署完成后项目页给出的网址形如
+
+   ```
+   https://cha-fen-wang-zhan.vercel.app
+   ```
+
+   把这个网址发给老师和学生即可（具体以你部署后 Vercel 显示的为准）。
+
+注意：
+
+- Vercel **Hobby 免费版仅限个人非商用**用途，学校/个人自用查分属于这个范围；
+  如果以后要商用，需要升级到 Pro。
+- Vercel 是无状态 Serverless：本项目已改成首次请求时才懒加载建表、连接池
+  全局缓存短用，不依赖长驻进程，所以冷启动后第一次查分稍慢一点属正常现象。
+- 已经部署在 Render 上的服务不受影响，两种部署方式可以共存、共用同一个
+  Neon 数据库；不再需要其中一个时，在对应平台删掉那个项目/服务即可。
