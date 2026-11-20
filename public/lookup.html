@@ -55,9 +55,7 @@ document.getElementById('btnLookup').addEventListener('click', async () => {
       return '<div class="panel"><h3>' + esc(rec.exam_name) + '</h3>' +
         '<p>' + esc(rec.student_name) + '（学号 ' + esc(rec.student_id) + (rec.class_name ? '，' + esc(rec.class_name) : '') + '）</p>' +
         '<table><tr><th>科目</th><th>分数</th></tr>' + rows + '</table>' +
-        '<p>总分：<span class="total">' + esc(rec.total) + '</span></p>' +
-        '<p>全体排名：第 ' + rec.overall_rank + ' 名（共 ' + rec.overall_count + ' 人）' +
-        (rec.class_count ? '；班级排名：第 ' + rec.class_rank + ' 名（共 ' + rec.class_count + ' 人）' : '') + '</p></div>';
+        '<p>总分：<span class="total">' + esc(rec.total) + '</span></p></div>';
     }).join('');
   } catch (e) { msg.textContent = '查询失败，请稍后再试'; msg.classList.add('error'); }
 });
