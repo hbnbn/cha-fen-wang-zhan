@@ -1,0 +1,1 @@
+{"_comment":"参考记录：EdgeOne Pages 导入本项目时在控制台填写的值备查，不是必须提交给平台读取的配置；以控制台实际选项为准。KV 绑定变量名 SCORE_KV 必须在控制台的 KV 绑定里填，不能只写在这个文件里。","buildCommand":"","frameworkPreset":"Other（其它/无框架）","kvBindings":[{"namespace":"新建一个 KV 命名空间，如 cha-fen-kv","variableName":"SCORE_KV"}],"outputDirectory":"public","projectName":"cha-fen-wang-zhan","rootDirectory":"edgeone"}
