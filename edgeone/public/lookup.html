@@ -1,0 +1,66 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>学生查分</title>
+<link rel="stylesheet" href="/styles.css">
+</head>
+<body>
+<header class="top">
+  <h1 id="schoolName">学校成绩查询</h1>
+  <div class="subtitle" id="subtitle"></div>
+</header>
+<nav class="topnav">
+  <a href="/">← 返回首页</a>
+  <a href="/lookup.html" id="navLookup">学生查分</a>
+  <a href="/admin.html" id="navEntry">成绩录入</a>
+</nav>
+<main>
+  <div class="panel">
+    <h2 id="lookupEntryName">学生查分</h2>
+    <p id="lookupDescription"></p>
+    <label for="qName">姓名</label>
+    <input id="qName" type="text" autocomplete="off">
+    <label for="qId">学号</label>
+    <input id="qId" type="text" autocomplete="off">
+    <button id="btnLookup" type="button">查询</button>
+    <div class="msg" id="msg"></div>
+  </div>
+  <div id="results"></div>
+</main>
+<footer id="footerText"></footer>
+<script src="/common.js"></script>
+<script>
+loadSettings().then((s) => {
+  if (!s) return;
+  document.getElementById('lookupEntryName').textContent = s.lookup_entry_name || '学生查分';
+  document.getElementById('lookupDescription').textContent = s.lookup_description || '';
+});
+document.getElementById('btnLookup').addEventListener('click', async () => {
+  const name = document.getElementById('qName').value.trim();
+  const studentId = document.getElementById('qId').value.trim();
+  const msg = document.getElementById('msg');
+  const results = document.getElementById('results');
+  msg.textContent = ''; msg.className = 'msg'; results.innerHTML = '';
+  if (!name || !studentId) { msg.textContent = '请输入姓名和学号'; msg.classList.add('error'); return; }
+  try {
+    const r = await fetch('/api/lookup?name=' + encodeURIComponent(name) + '&studentId=' + encodeURIComponent(studentId));
+    const data = await r.json();
+    if (!data.ok) { msg.textContent = data.error || '查询失败'; msg.classList.add('error'); return; }
+    if (!data.found) { msg.textContent = '查不到该学生的成绩，请确认姓名和学号是否正确。'; msg.classList.add('error'); return; }
+    results.innerHTML = data.results.map((rec) => {
+      const rows = Object.entries(rec.subjects)
+        .map(([k, v]) => '<tr><td>' + esc(k) + '</td><td>' + esc(v) + '</td></tr>').join('');
+      return '<div class="panel"><h3>' + esc(rec.exam_name) + '</h3>' +
+        '<p>' + esc(rec.student_name) + '（学号 ' + esc(rec.student_id) + (rec.class_name ? '，' + esc(rec.class_name) : '') + '）</p>' +
+        '<table><tr><th>科目</th><th>分数</th></tr>' + rows + '</table>' +
+        '<p>总分：<span class="total">' + esc(rec.total) + '</span></p>' +
+        '<p>全体排名：第 ' + rec.overall_rank + ' 名（共 ' + rec.overall_count + ' 人）' +
+        (rec.class_count ? '；班级排名：第 ' + rec.class_rank + ' 名（共 ' + rec.class_count + ' 人）' : '') + '</p></div>';
+    }).join('');
+  } catch (e) { msg.textContent = '查询失败，请稍后再试'; msg.classList.add('error'); }
+});
+</script>
+</body>
+</html>

@@ -1,0 +1,217 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>成绩录入</title>
+<link rel="stylesheet" href="/styles.css">
+</head>
+<body>
+<header class="top">
+  <h1 id="schoolName">学校成绩查询</h1>
+  <div class="subtitle" id="subtitle"></div>
+</header>
+<nav class="topnav">
+  <a href="/">← 返回首页</a>
+  <a href="/lookup.html" id="navLookup">学生查分</a>
+  <a href="/admin.html" id="navEntry">成绩录入</a>
+</nav>
+<main>
+  <div class="panel">
+    <h2 id="formTitle">添加成绩</h2>
+    <input id="editId" type="hidden">
+    <label>姓名</label><input id="fName" type="text">
+    <label>学号</label><input id="fId" type="text">
+    <label>班级</label><input id="fClass" type="text" placeholder="如：高一（1）班">
+    <label>考试名称</label><input id="fExam" type="text" placeholder="如：期中考试">
+    <label>科目分数（可自由增减科目）</label>
+    <div id="subjects"></div>
+    <button class="secondary" id="btnAddSubject" type="button">+ 添加科目</button>
+    <div>
+      <button id="btnSave" type="button">保存成绩</button>
+      <button class="secondary" id="btnReset" type="button">清空表单</button>
+    </div>
+    <div class="msg" id="formMsg"></div>
+  </div>
+
+  <div class="panel">
+    <h2>批量导入（粘贴 Excel 表格）</h2>
+    <p>从 Excel 复制整表粘贴到下面：第一行是表头，前四列依次为 姓名、学号、班级、考试，后面的列是各科目名称，分数填数字。</p>
+    <textarea id="importText" rows="8" placeholder="姓名&#9;学号&#9;班级&#9;考试&#9;语文&#9;数学&#9;英语"></textarea>
+    <button id="btnImport" type="button">导入</button>
+    <div class="msg" id="importMsg"></div>
+  </div>
+
+  <div class="panel">
+    <h2>已录入成绩</h2>
+    <div id="recordList"></div>
+  </div>
+
+  <div class="panel">
+    <h2>页面设置（保存后全站生效）</h2>
+    <label>学校名称</label><input id="sSchool" type="text">
+    <label>副标题</label><input id="sSubtitle" type="text">
+    <label>公告</label><textarea id="sAnnouncement" rows="2"></textarea>
+    <label>首页介绍</label><textarea id="sHomeIntro" rows="2"></textarea>
+    <label>查分入口名称</label><input id="sLookupName" type="text">
+    <label>查分页说明</label><textarea id="sLookupDesc" rows="2"></textarea>
+    <label>录入入口名称</label><input id="sEntryName" type="text">
+    <label>页脚文字</label><textarea id="sFooter" rows="2"></textarea>
+    <button id="btnSaveSettings" type="button">保存页面设置</button>
+    <div class="msg" id="settingsMsg"></div>
+  </div>
+</main>
+<footer id="footerText"></footer>
+<script src="/common.js"></script>
+<script>
+const subjectsEl = document.getElementById('subjects');
+function addSubjectRow(name, score) {
+  const row = document.createElement('div');
+  row.className = 'subject-row';
+  row.innerHTML = '<input type="text" class="subj-name" placeholder="科目名">' +
+    '<input type="number" class="subj-score" placeholder="分数">' +
+    '<button type="button" class="danger subj-del">删除</button>';
+  row.querySelector('.subj-name').value = name || '';
+  row.querySelector('.subj-score').value = score == null ? '' : score;
+  row.querySelector('.subj-del').addEventListener('click', () => row.remove());
+  subjectsEl.appendChild(row);
+}
+function collectSubjects() {
+  const out = {};
+  subjectsEl.querySelectorAll('.subject-row').forEach((row) => {
+    const n = row.querySelector('.subj-name').value.trim();
+    const v = row.querySelector('.subj-score').value;
+    if (n && v !== '') out[n] = Number(v);
+  });
+  return out;
+}
+function resetForm() {
+  document.getElementById('editId').value = '';
+  ['fName', 'fId', 'fClass', 'fExam'].forEach((id) => { document.getElementById(id).value = ''; });
+  subjectsEl.innerHTML = '';
+  addSubjectRow('语文', ''); addSubjectRow('数学', ''); addSubjectRow('英语', '');
+  document.getElementById('formTitle').textContent = '添加成绩';
+}
+document.getElementById('btnAddSubject').addEventListener('click', () => addSubjectRow('', ''));
+document.getElementById('btnReset').addEventListener('click', resetForm);
+
+document.getElementById('btnSave').addEventListener('click', async () => {
+  const msg = document.getElementById('formMsg'); msg.textContent = ''; msg.className = 'msg';
+  const body = {
+    student_name: document.getElementById('fName').value.trim(),
+    student_id: document.getElementById('fId').value.trim(),
+    class_name: document.getElementById('fClass').value.trim(),
+    exam_name: document.getElementById('fExam').value.trim(),
+    subjects: collectSubjects(),
+  };
+  if (!body.student_name || !body.student_id || !body.exam_name) {
+    msg.textContent = '姓名、学号、考试名称不能为空'; msg.classList.add('error'); return;
+  }
+  const id = document.getElementById('editId').value;
+  const r = await fetch(id ? '/api/records/' + id : '/api/records', {
+    method: id ? 'PUT' : 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(body),
+  });
+  const data = await r.json();
+  if (!data.ok) { msg.textContent = data.error || '保存失败'; msg.classList.add('error'); return; }
+  msg.textContent = '已保存'; resetForm(); loadRecords();
+});
+
+async function loadRecords() {
+  const list = document.getElementById('recordList');
+  const r = await fetch('/api/records');
+  const data = await r.json();
+  if (!data.ok) { list.textContent = data.error || '加载失败'; return; }
+  if (data.records.length === 0) { list.textContent = '暂无记录'; return; }
+  list.innerHTML = '<table><tr><th>考试</th><th>班级</th><th>姓名</th><th>学号</th><th>总分</th><th>操作</th></tr>' +
+    data.records.map((rec) =>
+      '<tr><td>' + esc(rec.exam_name) + '</td><td>' + esc(rec.class_name) + '</td><td>' +
+      esc(rec.student_name) + '</td><td>' + esc(rec.student_id) + '</td><td>' + esc(rec.total) + '</td>' +
+      '<td class="row-actions"><button type="button" class="secondary" data-edit="' + rec.id + '">修改</button>' +
+      '<button type="button" class="danger" data-del="' + rec.id + '">删除</button></td></tr>'
+    ).join('') + '</table>';
+  list.querySelectorAll('[data-edit]').forEach((btn) => btn.addEventListener('click', () => {
+    const rec = data.records.find((x) => String(x.id) === btn.getAttribute('data-edit'));
+    if (!rec) return;
+    document.getElementById('editId').value = rec.id;
+    document.getElementById('fName').value = rec.student_name;
+    document.getElementById('fId').value = rec.student_id;
+    document.getElementById('fClass').value = rec.class_name;
+    document.getElementById('fExam').value = rec.exam_name;
+    subjectsEl.innerHTML = '';
+    Object.entries(rec.subjects).forEach(([k, v]) => addSubjectRow(k, v));
+    document.getElementById('formTitle').textContent = '修改成绩';
+    window.scrollTo({ top: 0, behavior: 'smooth' });
+  }));
+  list.querySelectorAll('[data-del]').forEach((btn) => btn.addEventListener('click', async () => {
+    if (!confirm('确定删除这条成绩吗？')) return;
+    await fetch('/api/records/' + btn.getAttribute('data-del'), { method: 'DELETE' });
+    loadRecords();
+  }));
+}
+
+document.getElementById('btnImport').addEventListener('click', async () => {
+  const msg = document.getElementById('importMsg'); msg.textContent = ''; msg.className = 'msg';
+  const text = document.getElementById('importText').value.trim();
+  if (!text) { msg.textContent = '请先粘贴表格内容'; msg.classList.add('error'); return; }
+  const lines = text.split(/\r?\n/).filter((l) => l.trim());
+  const splitLine = (l) => (l.includes('\t') ? l.split('\t') : l.split(/[,，]/)).map((c) => c.trim());
+  const headers = splitLine(lines[0]);
+  const records = [];
+  for (let i = 1; i < lines.length; i++) {
+    const cells = splitLine(lines[i]);
+    if (cells.length < 4) continue;
+    const subjects = {};
+    for (let j = 4; j < headers.length && j < cells.length; j++) {
+      if (headers[j] && cells[j] !== '' && !Number.isNaN(Number(cells[j]))) subjects[headers[j]] = Number(cells[j]);
+    }
+    records.push({ student_name: cells[0], student_id: cells[1], class_name: cells[2], exam_name: cells[3], subjects });
+  }
+  if (records.length === 0) { msg.textContent = '没有解析到有效记录，请检查表头和内容'; msg.classList.add('error'); return; }
+  const r = await fetch('/api/records/import', {
+    method: 'POST', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ records }),
+  });
+  const data = await r.json();
+  if (!data.ok) { msg.textContent = data.error || '导入失败'; msg.classList.add('error'); return; }
+  msg.textContent = '已导入 ' + data.inserted + ' 条记录';
+  loadRecords();
+});
+
+loadSettings().then((s) => {
+  if (!s) return;
+  document.getElementById('sSchool').value = s.school_name || '';
+  document.getElementById('sSubtitle').value = s.subtitle || '';
+  document.getElementById('sAnnouncement').value = s.announcement || '';
+  document.getElementById('sHomeIntro').value = s.home_intro || '';
+  document.getElementById('sLookupName').value = s.lookup_entry_name || '';
+  document.getElementById('sLookupDesc').value = s.lookup_description || '';
+  document.getElementById('sEntryName').value = s.entry_entry_name || '';
+  document.getElementById('sFooter').value = s.footer_text || '';
+});
+document.getElementById('btnSaveSettings').addEventListener('click', async () => {
+  const msg = document.getElementById('settingsMsg'); msg.textContent = ''; msg.className = 'msg';
+  const body = {
+    school_name: document.getElementById('sSchool').value,
+    subtitle: document.getElementById('sSubtitle').value,
+    announcement: document.getElementById('sAnnouncement').value,
+    home_intro: document.getElementById('sHomeIntro').value,
+    lookup_entry_name: document.getElementById('sLookupName').value,
+    lookup_description: document.getElementById('sLookupDesc').value,
+    entry_entry_name: document.getElementById('sEntryName').value,
+    footer_text: document.getElementById('sFooter').value,
+  };
+  const r = await fetch('/api/settings', {
+    method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body),
+  });
+  const data = await r.json();
+  if (!data.ok) { msg.textContent = data.error || '保存失败'; msg.classList.add('error'); return; }
+  msg.textContent = '已保存，全站生效'; loadSettings();
+});
+
+resetForm();
+loadRecords();
+</script>
+</body>
+</html>
