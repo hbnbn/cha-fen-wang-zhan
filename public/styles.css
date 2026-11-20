@@ -1,0 +1,31 @@
+* { box-sizing: border-box; }
+body { margin: 0; font-family: -apple-system, "Segoe UI", "Microsoft YaHei", sans-serif; background: #f5f6f8; color: #222; }
+header.top { background: #b91c1c; color: #fff; padding: 18px 16px 12px; }
+header.top h1 { margin: 0; font-size: 26px; }
+header.top .subtitle { opacity: .9; margin-top: 4px; }
+nav.topnav { background: #991b1b; padding: 8px 16px; display: flex; gap: 16px; flex-wrap: wrap; }
+nav.topnav a { color: #fff; text-decoration: none; font-size: 15px; }
+nav.topnav a:hover { text-decoration: underline; }
+main { max-width: 900px; margin: 0 auto; padding: 20px 16px 40px; }
+.announcement { background: #fff7ed; border: 1px solid #fed7aa; border-radius: 8px; padding: 10px 14px; margin-bottom: 16px; white-space: pre-wrap; }
+.cards { display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 16px; margin-top: 16px; }
+.card { background: #fff; border-radius: 12px; padding: 22px; box-shadow: 0 1px 4px rgba(0,0,0,.08); text-decoration: none; color: inherit; display: block; }
+.card h2 { margin: 0 0 8px; font-size: 21px; }
+.card p { margin: 0; color: #555; }
+.panel { background: #fff; border-radius: 12px; padding: 20px; box-shadow: 0 1px 4px rgba(0,0,0,.08); margin-bottom: 16px; }
+label { display: block; font-size: 14px; color: #444; margin: 10px 0 4px; }
+input, textarea, select { width: 100%; padding: 9px 10px; border: 1px solid #ccc; border-radius: 6px; font-size: 15px; font-family: inherit; }
+button { background: #b91c1c; color: #fff; border: 0; border-radius: 6px; padding: 9px 18px; font-size: 15px; cursor: pointer; margin-top: 12px; }
+button.secondary { background: #e5e7eb; color: #222; }
+button.danger { background: #fff; color: #b91c1c; border: 1px solid #b91c1c; }
+table { width: 100%; border-collapse: collapse; margin-top: 10px; font-size: 14px; }
+th, td { border: 1px solid #e5e7eb; padding: 6px 8px; text-align: left; }
+th { background: #f9fafb; }
+.total { color: #b91c1c; font-weight: 700; font-size: 17px; }
+.msg { margin-top: 12px; }
+.msg.error { color: #b91c1c; }
+.subject-row { display: flex; gap: 8px; margin-top: 6px; }
+.subject-row input { flex: 1; min-width: 0; }
+.subject-row button { margin-top: 0; flex: none; }
+footer { text-align: center; color: #888; font-size: 13px; padding: 18px 12px 28px; white-space: pre-wrap; }
+.row-actions button { margin: 0 4px 0 0; padding: 5px 10px; font-size: 13px; }

@@ -1,0 +1,49 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>学校成绩查询</title>
+<link rel="stylesheet" href="/styles.css">
+</head>
+<body>
+<header class="top">
+  <h1 id="schoolName">学校成绩查询</h1>
+  <div class="subtitle" id="subtitle"></div>
+</header>
+<nav class="topnav">
+  <a href="/">首页</a>
+  <a href="/lookup.html" id="navLookup">学生查分</a>
+  <a href="/admin.html" id="navEntry">成绩录入</a>
+</nav>
+<main>
+  <div class="announcement" id="announcement" style="display:none"></div>
+  <p id="homeIntro"></p>
+  <div class="cards">
+    <a class="card" href="/lookup.html">
+      <h2 id="lookupEntryName">学生查分</h2>
+      <p id="lookupEntryDesc"></p>
+    </a>
+    <a class="card" href="/admin.html">
+      <h2 id="entryEntryName">成绩录入</h2>
+      <p>老师录入、修改成绩，批量导入，以及修改全站页面文字。</p>
+    </a>
+  </div>
+</main>
+<footer id="footerText"></footer>
+<script src="/common.js"></script>
+<script>
+loadSettings().then((s) => {
+  if (!s) return;
+  if (s.announcement) {
+    const a = document.getElementById('announcement');
+    a.textContent = s.announcement; a.style.display = 'block';
+  }
+  document.getElementById('homeIntro').textContent = s.home_intro || '';
+  document.getElementById('lookupEntryName').textContent = s.lookup_entry_name || '学生查分';
+  document.getElementById('lookupEntryDesc').textContent = s.lookup_description || '';
+  document.getElementById('entryEntryName').textContent = s.entry_entry_name || '成绩录入';
+});
+</script>
+</body>
+</html>
